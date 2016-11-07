@@ -14,28 +14,34 @@
 #include <myo/myo.hpp>
 
 #define EMG_FILE "emg.txt"
-#define CLOSE_COUNT_MAX 20 // Close-Open file after this many interrupts to expediate reading on the other side #No_hacks
+#define GYRO_FILE "gyro.txt"
+#define ACCEL_FILE "accel.txt"
+#define CLOSE_COUNT_MAX 15 // Close-Open file after this many interrupts to expediate reading on the other side #No_hacks
 
-FILE * emgFile; // Globals is cleanest solution for speed
+/* Globals */
+FILE * emgFile; 
+FILE * gyroFile;
+FILE * accelFile;
 FILETIME ft_now;
-int closeCounter = 1;
+int closeCounterEMG = 1;
+int closeCounterGYRO = 1;
+int closeCounterACCEL = 1;
 
 class DataCollector : public myo::DeviceListener {
 public:
-    DataCollector() : emgSamples() {
-    }
-
     /* On user disconnect */
     void onUnpair(myo::Myo* myo, uint64_t timestamp) {
-        emgSamples.fill(0);
+		std::cout << "Myo unpaired." << std::endl;
     }
+
+	/* On device connection */
+	void onConnect(myo::Myo *myo, uint64_t timestamp, myo::FirmwareVersion firmwareVersion) {
+		// In case we ever want to do anything
+	}
 
     /* EMG data interrupt - save data and print to text file */
     void onEmgData(myo::Myo* myo, uint64_t timestamp, const int8_t* emg) {
         unsigned long long temp_now, ll_sec, ll_ms;
-        for (int i = 0; i < 8; i++) {
-            emgSamples[i] = emg[i];
-        }
 
         GetSystemTimeAsFileTime(&ft_now); // Time grabbed from windows since myo SDK specifies timestamp as from (unspecified) time 
         temp_now = ((LONGLONG)ft_now.dwLowDateTime + ((LONGLONG)(ft_now.dwHighDateTime) << 32LL) - 116444736000000000LL); // time since UNIX epoch in 100ns resolution
@@ -44,13 +50,51 @@ public:
 
         fprintf(emgFile, "%4i,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%10" PRIu64 ".%03" PRIu64 "\n", emg[0], emg[1], emg[2], emg[3], emg[4], emg[5], emg[6], emg[7], ll_sec, ll_ms);
 
-        closeCounter++; // Close-Open file to increase capture speed on MATLAB side
-        if (closeCounter >= CLOSE_COUNT_MAX) {
-            closeCounter = 1;
+		closeCounterEMG++; // Close-Open file to increase capture speed on MATLAB side
+        if (closeCounterEMG >= CLOSE_COUNT_MAX) {
+			closeCounterEMG = 1;
             fclose(emgFile);
             emgFile = fopen(EMG_FILE, "a");
         }
     }
+
+	/* Gyro data interrupt - save data and print to text file*/
+	void onGyroscopeData(myo::Myo *myo, uint64_t timestamp, const myo::Vector3< float > &gyro) {
+		unsigned long long temp_now, ll_sec, ll_ms;
+
+		GetSystemTimeAsFileTime(&ft_now); // Time grabbed from windows since myo SDK specifies timestamp as from (unspecified) time 
+		temp_now = ((LONGLONG)ft_now.dwLowDateTime + ((LONGLONG)(ft_now.dwHighDateTime) << 32LL) - 116444736000000000LL); // time since UNIX epoch in 100ns resolution
+		ll_sec = temp_now / 10000000; // Get seconds (integer division)
+		ll_ms = (temp_now / 10000) - (ll_sec * 1000); // Get difference caused by truncation in integer division
+
+		fprintf(gyroFile, "% 10.4f,% 10.4f,% 10.4f,%10" PRIu64 ".%03" PRIu64 "\n", gyro.x(), gyro.y(), gyro.z(), ll_sec, ll_ms);
+
+		closeCounterGYRO++; // Close-Open file to increase capture speed on MATLAB side
+		if (closeCounterGYRO >= CLOSE_COUNT_MAX) {
+			closeCounterGYRO = 1;
+			fclose(gyroFile);
+			gyroFile = fopen(GYRO_FILE, "a");
+		}
+	}
+
+	/* Accelerometer data interrupt - save data and print to text file*/
+	void onAccelerometerData(myo::Myo *myo, uint64_t timestamp, const myo::Vector3< float > &accel) {
+		unsigned long long temp_now, ll_sec, ll_ms;
+
+		GetSystemTimeAsFileTime(&ft_now); // Time grabbed from windows since myo SDK specifies timestamp as from (unspecified) time 
+		temp_now = ((LONGLONG)ft_now.dwLowDateTime + ((LONGLONG)(ft_now.dwHighDateTime) << 32LL) - 116444736000000000LL); // time since UNIX epoch in 100ns resolution
+		ll_sec = temp_now / 10000000; // Get seconds (integer division)
+		ll_ms = (temp_now / 10000) - (ll_sec * 1000); // Get difference caused by truncation in integer division
+
+		fprintf(accelFile, "% 10.6f,% 10.6f,% 10.6f,%10" PRIu64 ".%03" PRIu64 "\n", accel.x(), accel.y(), accel.z(), ll_sec, ll_ms);
+
+		closeCounterACCEL++; // Close-Open file to increase capture speed on MATLAB side
+		if (closeCounterACCEL >= CLOSE_COUNT_MAX) {
+			closeCounterACCEL = 1;
+			fclose(accelFile);
+			accelFile = fopen(ACCEL_FILE, "a");
+		}
+	}
 
     /* Overwrite print() - print saved EMG data */
     void print() {
@@ -71,8 +115,18 @@ int main(int argc, char** argv) {
     try {
         emgFile = fopen(EMG_FILE, "a");
         if (emgFile == NULL) {
-            throw std::runtime_error("Unable to open output file!");
+            throw std::runtime_error("Unable to open EMG output file!");
         }
+
+		gyroFile = fopen(GYRO_FILE, "a");
+		if (gyroFile == NULL) {
+			throw std::runtime_error("Unable to open GYRO output file!");
+		}
+
+		accelFile = fopen(ACCEL_FILE, "a");
+		if (accelFile == NULL) {
+			throw std::runtime_error("Unable to open ACCEL output file!");
+		}
 
         myo::Hub hub("com.Myo-MATLAB-Interface.emg-sample");
         std::cout << "Attempting to find a Myo..." << std::endl;

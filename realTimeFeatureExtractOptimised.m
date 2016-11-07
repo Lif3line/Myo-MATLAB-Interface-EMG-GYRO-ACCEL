@@ -6,24 +6,37 @@
 clear; clc; close all % House keep
 
 %% Genmeral Setup
-lineLength = 54;
+lineLengthEMG = 54;
+lineLengthGYRO = 47;
+lineLengthACCEL = 47;
 numChannels = 8;
-sampMax = 4000;
+emgSampMax = 4000;
+gyroAccelSampMax = emgSampMax/4;
 windowLength = 40;
-curPosition = 0;
+curPositionEMG = 0;
+curPositionGYRO = 0;
+curPositionACCEL = 0;
 
-emgData = NaN([sampMax numChannels]); % Matrix for EMG data
-mavData = NaN([(sampMax - windowLength) numChannels]); % Matrix for MAV feature
+emgData = NaN([emgSampMax numChannels]); % Matrix for EMG data
+mavData = NaN([(emgSampMax - windowLength) numChannels]); % Matrix for MAV feature
+gyroData = NaN([gyroAccelSampMax 3]); % Matrix for Gyro data
+accelData = NaN([gyroAccelSampMax 3]); % Matrix for Accelerometer data
 
 fileNameEMG = 'emg.txt'; % File for data transmission; again stop judging ^^
+fileNameGYRO = 'gyro.txt'; % File for data transmission; again stop judging ^^
+fileNameACCEL = 'accel.txt'; % File for data transmission; again stop judging ^^
 cmdWindowName = 'EMG Gather';
 
-FileEMG = fopen(fileNameEMG,'w'); % Reset file
+FileEMG = fopen(fileNameEMG,'w'); % Reset file so we don't read previous runs etc
 fclose(FileEMG); 
+FileGYRO = fopen(fileNameGYRO,'w'); % Reset file so we don't read previous runs etc
+fclose(FileGYRO);
+FileACCEL = fopen(fileNameACCEL,'w'); % Reset file so we don't read previous runs etc
+fclose(FileACCEL);
 
 system(['start /realtime "' cmdWindowName '" getMyoEmg.exe & exit &']) % Start (non-blocking) C thread
 figure(1) % Do after cmd call to bring to foreground
-set(gcf,'currentchar',']') % Used for exit on button press
+set(gcf,'currentchar',']'); % For loop breaking later
 
 %% Pause for handshake with myo connect and for data collection to begin
 pause(1);
@@ -31,7 +44,7 @@ pause(1);
 %% Pseudo-realtime extraction
 % Get first timestamp from file (and check data gathering is working)
 FileEMG = fopen(fileNameEMG,'r'); 
-fseek(FileEMG,curPosition,-1); 
+fseek(FileEMG,curPositionEMG,-1); 
 fileDataRaw = fgetl(FileEMG);
 if fileDataRaw == -1 
     system(['taskkill /f /fi "WindowTitle eq  ' cmdWindowName '" /T & exit']) 
@@ -40,67 +53,138 @@ if fileDataRaw == -1
     return;
 end
 fileDataStrArray = strsplit(fileDataRaw,',');
-startTime = str2double(fileDataStrArray(end));
-fclose(FileEMG);
+startTimeEMG = str2double(fileDataStrArray(end));
+fclose(FileEMG); 
 
-curSample = 1;
-lastSample = 1;
-
-while 1 % While no button has been pressed
+curSampleEMG = 1;
+curSampleGYRO = 1;
+curSampleACCEL = 1;
+lastSampleEMG = 1;
+lastSampleGYRO = 1;
+lastSampleACCEL = 1;
+while get(gcf,'currentchar')==']' % While no button has been pressed
+    %% Do EMG processing and graphing
     FileEMG = fopen(fileNameEMG,'r'); 
-    fseek(FileEMG,curPosition,-1); 
+    fseek(FileEMG,curPositionEMG,-1); 
 
     fileDataRaw = ' ';
     while ischar(fileDataRaw) % Extract new data from file
         fileDataRaw = fgetl(FileEMG);
-        if numel(fileDataRaw) ~= lineLength % Break if last line incomplete (and seek back to start of that line
+        if numel(fileDataRaw) ~= lineLengthEMG % Break if last line incomplete (and seek back to start of that line
             fseek(FileEMG,-numel(fileDataRaw) ,0);
             break;
         end
         
         fileDataStrArray = strsplit(fileDataRaw,',');
         curTime = str2double(fileDataStrArray(end));
-        emgData(curSample,:) = str2double(fileDataStrArray(1:numChannels));
+        emgData(curSampleEMG,:) = str2double(fileDataStrArray(1:numChannels));
         
-        if curSample >= windowLength % MAV feature extraction
-            mavData(curSample - windowLength + 1,:) = mean(abs(emgData(curSample - windowLength + 1:curSample,:)));
+        if curSampleEMG >= windowLength % MAV feature extraction
+            mavData(curSampleEMG - windowLength + 1,:) = mean(abs(emgData(curSampleEMG - windowLength + 1:curSampleEMG,:)));
         end
         
-        curSample = curSample + 1;
+        curSampleEMG = curSampleEMG + 1;
     end
-    curPosition = ftell(FileEMG);
+    curPositionEMG = ftell(FileEMG);
     fclose(FileEMG); 
     
-    if curSample - lastSample == 0 % Don't waste time drawing if no new data
+    if curSampleEMG - lastSampleEMG == 0 % Don't waste time drawing if no new data (shortcut on EMG data intentional)
         continue;
     else
-        lastSample = curSample;  
+        lastSampleEMG = curSampleEMG;  
     end
     
     % Plots
-    subplot(2,1,1)
+    subplot(4,1,1)
     plot(emgData)
     ylim([-128 127])
-    xlim([1 sampMax])
-    title(['Sample frequency: ' num2str(curSample/(curTime - startTime))])
-    xlabel('Samples')
+    xlim([1 emgSampMax])
+    title(['Sample frequency: ' num2str(curSampleEMG/(curTime - startTimeEMG))])
+    set(gca,'XTickLabel','')
     ylabel('Amplitude')
     
-    subplot(2,1,2)
+    subplot(4,1,2)
     plot(mavData)
     ylim([0 127])
-    xlim([1 sampMax])
+    xlim([1 emgSampMax])
     title([num2str(windowLength) ' Sample Window MAV'])
     xlabel('Press any key to quit..')
     ylabel('Amplitude')
-    drawnow
     
-    if curSample > sampMax % Clear arrays when large
-        curSample = 1;
-        lastSample = 1;
-        emgData = NaN([sampMax numChannels]);
-        mavData = NaN([(sampMax - windowLength) numChannels]);
-        startTime = curTime;
+    %% Do Gyro processing and graphing
+    FileGYRO = fopen(fileNameGYRO,'r'); 
+    fseek(FileGYRO,curPositionGYRO,-1); 
+
+    fileDataRaw = ' ';
+    while ischar(fileDataRaw) % Extract new data from file
+        fileDataRaw = fgetl(FileGYRO);
+        if numel(fileDataRaw) ~= lineLengthGYRO % Break if last line incomplete (and seek back to start of that line
+            fseek(FileGYRO,-numel(fileDataRaw) ,0);
+            break;
+        end
+        
+        fileDataStrArray = strsplit(fileDataRaw,',');
+        gyroData(curSampleGYRO,:) = str2double(fileDataStrArray(1:3));
+        
+        curSampleGYRO = curSampleGYRO + 1;
+    end
+    curPositionGYRO = ftell(FileGYRO);
+    fclose(FileGYRO); 
+    
+    % Plots
+    subplot(4,1,3)
+    plot(gyroData)
+    ylim([-500 500])
+    xlim([1 gyroAccelSampMax])
+    title('Gyro Data')
+    set(gca,'XTickLabel','')
+    ylabel('Amplitude')
+    legend('x','y','z')
+    
+    %% Do Accelerometer processing and graphing
+    FileACCEL = fopen(fileNameACCEL,'r'); 
+    fseek(FileACCEL,curPositionACCEL,-1); 
+
+    fileDataRaw = ' ';
+    while ischar(fileDataRaw) % Extract new data from file
+        fileDataRaw = fgetl(FileACCEL);
+        if numel(fileDataRaw) ~= lineLengthACCEL % Break if last line incomplete (and seek back to start of that line
+            fseek(FileACCEL,-numel(fileDataRaw) ,0);
+            break;
+        end
+        
+        fileDataStrArray = strsplit(fileDataRaw,',');
+        accelData(curSampleACCEL,:) = str2double(fileDataStrArray(1:3));
+        
+        curSampleACCEL = curSampleACCEL + 1;
+    end
+    curPositionACCEL = ftell(FileACCEL);
+    fclose(FileACCEL); 
+    
+    % Plots
+    subplot(4,1,4)
+    plot(accelData)
+    ylim([-2 2])
+    xlim([1 gyroAccelSampMax])
+    title('Accelerometer Data')
+    set(gca,'XTickLabel','')
+    ylabel('Amplitude')
+    legend('x','y','z')
+    
+    %% Loop housekeeping
+    drawnow
+    if curSampleEMG > emgSampMax % Clear arrays when large
+        curSampleEMG = 1;
+        curSampleGYRO = 1;
+        curSampleACCEL = 1;
+        lastSampleEMG = 1;
+        lastSampleGYRO = 1;
+        lastSampleACCEL = 1;
+        emgData = NaN([emgSampMax numChannels]);
+        mavData = NaN([(emgSampMax - windowLength) numChannels]);
+        gyroData = NaN([gyroAccelSampMax 3]); 
+        accelData = NaN([gyroAccelSampMax 3]); 
+        startTimeEMG = curTime;
     end
 end
 
