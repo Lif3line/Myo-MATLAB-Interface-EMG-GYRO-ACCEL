@@ -16,7 +16,7 @@
 #define EMG_FILE "emg.txt"
 #define GYRO_FILE "gyro.txt"
 #define ACCEL_FILE "accel.txt"
-#define CLOSE_COUNT_MAX 15 // Close-Open file after this many interrupts to expediate reading on the other side #No_hacks
+#define CLOSE_COUNT_MAX 10 // Close-Open file after this many interrupts to expediate reading on the other side #No_hacks
 
 /* Globals */
 FILE * emgFile; 
