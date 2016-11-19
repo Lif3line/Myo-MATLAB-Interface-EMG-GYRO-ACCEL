@@ -2,7 +2,9 @@
 
 ----
 ## Intro
-Simple interface demonstration for taking Myo EMG data in near real time and piping to MATLAB; script shows the data on a graph as it comes in along with the Mean Absolute Value Feature.
+Simple interface demonstration for taking Myo Electromyography (EMG) data in near real time and piping to MATLAB; script shows the data on a graph as it comes in along with the Mean Absolute Value Feature.
+
+Text files for EMG, accelerometer, gyroscope and orientation data are also generated including timestamps for syncing .
 
 * Distributed under a modified MIT Licence
 	* For academic works please reference with the following key information: "A, Hartwell (2016) Myo-MATLAB Interface"
